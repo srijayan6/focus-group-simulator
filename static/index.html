@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Focus Group Simulator</title>
+<style>
+  body {
+    margin: 0;
+    background: #E7E2D3;
+    color: #201D16;
+    font-family: Georgia, serif;
+    padding: 40px 24px 80px;
+  }
+  .wrap { max-width: 840px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  header p { color: #4A463C; max-width: 60ch; }
+  textarea {
+    width: 100%; min-height: 90px; padding: 12px;
+    font-family: Georgia, serif; font-size: 16px;
+    border: 1px solid #C9C2AC; background: #F6F3E9;
+  }
+  .persona-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px; margin: 12px 0 20px;
+  }
+  .persona-pick {
+    border: 1px solid #C9C2AC; background: #F6F3E9; padding: 10px 12px; cursor: pointer;
+  }
+  .persona-pick.selected { border-color: #201D16; box-shadow: inset 0 0 0 1px #201D16; }
+  button {
+    background: #201D16; color: #F6F3E9; border: none; padding: 12px 20px;
+    font-size: 14px; cursor: pointer;
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin: 24px 0; }
+  .card { background: #F6F3E9; border: 1px solid #C9C2AC; padding: 14px 16px; }
+  .synthesis { border: 1px solid #201D16; background: #F6F3E9; padding: 18px 20px; }
+  .error { color: #9B3A2C; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Focus Group Simulator</h1>
+    <p>Describe an idea. Distinct personas react independently — no consensus, no averaging.</p>
+  </header>
+
+  <label>Your idea:</label>
+  <textarea id="concept" placeholder="e.g. A $15/month app that plans weekly meals based on what's in your fridge."></textarea>
+
+  <p>Select 3-5 personas:</p>
+  <div class="persona-grid" id="personaGrid"></div>
+
+  <button id="runBtn">Run the group</button>
+  <div class="error" id="errorMsg" style="display:none;"></div>
+
+  <div id="results" style="display:none;">
+    <h2>Reactions</h2>
+    <div class="cards" id="cards"></div>
+    <div class="synthesis" id="synthesis" style="display:none;">
+      <h3>Synthesis</h3>
+      <p><strong>Agreement:</strong> <span id="agreeText"></span></p>
+      <p><strong>Tension:</strong> <span id="tensionText"></span></p>
+      <p><strong>Blind spot:</strong> <span id="blindspotText"></span></p>
+    </div>
+  </div>
+</div>
+
+<script>
+const PERSONAS = [
+  { id: "skeptic", name: "The Skeptic", tag: "burned before" },
+  { id: "budget", name: "The Budget-Conscious One", tag: "counts every dollar" },
+  { id: "convenience", name: "The Busy Convenience-Seeker", tag: "no time to waste" },
+  { id: "loyalist", name: "The Loyalist", tag: "already has a solution" },
+  { id: "enthusiast", name: "The Enthusiast", tag: "excited by new things" }
+];
+
+let selected = new Set(["skeptic", "budget", "convenience"]);
+
+function renderPersonaGrid() {
+  const grid = document.getElementById("personaGrid");
+  grid.innerHTML = "";
+  PERSONAS.forEach(p => {
+    const el = document.createElement("div");
+    el.className = "persona-pick" + (selected.has(p.id) ? " selected" : "");
+    el.innerHTML = `<strong>${p.name}</strong><br><small>${p.tag}</small>`;
+    el.onclick = () => {
+      if (selected.has(p.id)) selected.delete(p.id);
+      else selected.add(p.id);
+      renderPersonaGrid();
+    };
+    grid.appendChild(el);
+  });
+}
+renderPersonaGrid();
+
+document.getElementById("runBtn").addEventListener("click", async () => {
+  const errorEl = document.getElementById("errorMsg");
+  errorEl.style.display = "none";
+
+  const concept = document.getElementById("concept").value.trim();
+  if (!concept) { errorEl.textContent = "Describe your idea first."; errorEl.style.display = "block"; return; }
+  if (selected.size < 3) { errorEl.textContent = "Select at least 3 personas."; errorEl.style.display = "block"; return; }
+
+  const btn = document.getElementById("runBtn");
+  btn.disabled = true;
+  btn.textContent = "Running the group...";
+
+  try {
+    const response = await fetch("/api/run-focus-group", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ concept, personas: Array.from(selected) })
+    });
+    if (!response.ok) throw new Error("Server error");
+    const data = await response.json();
+
+    const cardsEl = document.getElementById("cards");
+    cardsEl.innerHTML = data.reactions.map(r => `
+      <div class="card">
+        <small>${r.tag}</small>
+        <h4>${r.name}</h4>
+        <p>${r.reaction}</p>
+      </div>
+    `).join("");
+
+    document.getElementById("agreeText").textContent = data.synthesis.agreement || "-";
+    document.getElementById("tensionText").textContent = data.synthesis.tension || "-";
+    document.getElementById("blindspotText").textContent = data.synthesis.blindSpot || "-";
+
+    document.getElementById("results").style.display = "block";
+    document.getElementById("synthesis").style.display = "block";
+  } catch (err) {
+    errorEl.textContent = "Something went wrong reaching the server. Try again.";
+    errorEl.style.display = "block";
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run the group";
+  }
+});
+</script>
+</body>
+</html>
